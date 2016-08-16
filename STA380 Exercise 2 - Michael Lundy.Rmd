@@ -1,0 +1,282 @@
+---
+title: "STA380 Exercise 2 - Michael Lundy"
+author: "Michael Lundy"
+date: "August 16, 2016"
+output: word_document
+---
+
+Problem 1 - Flights at ABIA
+```{r}
+library(arules)
+library(mosaic)
+library(ggplot2)
+abia=read.csv("ABIA.csv")
+names(abia)
+attach(abia)
+```
+
+Average departure delay for each day of the month
+```{r}
+ggplot(abia, aes(DayofMonth, DepDelay)) + geom_smooth() 
+```
+
+```{r}
+ggplot(abia, aes(Distance, DepDelay)) + geom_smooth() 
+```
+
+Average arrival delay for each day of the month
+```{r}
+ggplot(abia, aes(DayofMonth, ArrDelay)) + geom_smooth() 
+```
+
+Average departure delay per month
+```{r}
+ggplot(abia, aes(Month, DepDelay)) + geom_smooth()
+```
+
+Average arrival delay per month
+```{r}
+ggplot(abia, aes(Month, ArrDelay)) + geom_smooth()
+```
+
+A plot of all of the departure delays versus the time they occured at in the day
+```{r}
+ggplot(abia, aes(DepTime, DepDelay)) +
+  geom_jitter()
+```
+
+The count of flight cancellations per flight carrier
+```{r}
+df1 <- abia[,c('UniqueCarrier', 'Cancelled')]
+only_cancellations <- df1[df1$Cancelled == 1,]
+ggplot(only_cancellations, aes(x = UniqueCarrier, y = Cancelled)) + geom_bar(stat='identity')
+```
+
+The count of each type of cancellation per flight carrier
+```{r}
+df2 <- abia[,c('UniqueCarrier', 'CancellationCode')]
+df2_A <- df2[df2$CancellationCode == c('A','B','C','D'),]
+ggplot(df2_A, aes(x=UniqueCarrier, fill=CancellationCode)) + geom_bar(position='dodge')
+```
+
+The count of each type of cancellation for each month
+```{r}
+df3 <- abia[,c('Month', 'CancellationCode')]
+df3_A <- df3[df3$CancellationCode == c('A','B','C','D'),]
+ggplot(df3_A, aes(x=Month, fill=CancellationCode)) + geom_bar(position='dodge')
+```
+
+```{r}
+df4 <- abia[, c("ArrDelay","DayOfWeek")]
+head(df4)
+a <- aggregate(ArrDelay ~ DayOfWeek, data=df4, FUN=mean)
+barplot(a$ArrDelay, names.arg=a$DayOfWeek, ylab = "Average Arrival Delay Time", xlab = "Day of the Week", main = "Delays by Day")
+```
+
+```{r}
+df5 <- abia[, c("DepDelay","DayOfWeek")]
+head(df5)
+b <- aggregate(DepDelay ~ DayOfWeek, data=df5, FUN=mean)
+barplot(b$DepDelay, names.arg=b$DayOfWeek, ylab = "Average Departure Delay Time", xlab = "Day of the Week", main = "Delays by Day")
+```
+
+```{r}
+df6 <- abia[, c("ArrDelay","Month")]
+head(df6)
+c <- aggregate(ArrDelay ~ Month, data=df6, FUN=mean)
+barplot(c$ArrDelay, names.arg=c$Month, ylab = "Average Arrival Delay Time", xlab = "Month", main = "Delays by Month")
+```
+
+```{r}
+df7 <- abia[, c("DepDelay","Month")]
+head(df7)
+d <- aggregate(DepDelay ~ Month, data=df7, FUN=mean)
+barplot(d$DepDelay, names.arg=d$Month, ylab = "Average Departure Delay Time", xlab = "Month", main = "Delays by Month")
+```
+
+
+Problem 2 - Author Attribution
+```{r}
+library(tm)
+library(e1071)
+library(caret)
+library(glmnet)
+library(SnowballC)
+library(class)
+library(randomForest)
+source('textutils.R')
+
+readerPlain=function(fname){
+  readPlain(elem=list(content=readLines(fname)), id=fname, language='en')}
+
+
+author_dirs=Sys.glob('~/MSBA/Summer/Predictive Models 2/STA380-master/data/ReutersC50/C50train/*')
+file_list=NULL
+labels=NULL
+
+for(author in author_dirs){
+  author_name=substring(author, first=20)
+  files_to_add= Sys.glob(paste0(author,'/*.txt'))
+  file_list=append(file_list, files_to_add)
+  labels=append(labels, rep(author_name, length(files_to_add)))
+}  
+
+all_docs = lapply(file_list, readerPlain) 
+names(all_docs) = file_list
+
+my_corpus = Corpus(VectorSource(all_docs))
+names(my_corpus) = file_list
+
+
+my_corpus = tm_map(my_corpus, content_transformer(tolower)) # make everything lowercase
+my_corpus = tm_map(my_corpus, content_transformer(removeNumbers)) # remove numbers
+my_corpus = tm_map(my_corpus, content_transformer(removePunctuation)) # remove punctuation
+my_corpus = tm_map(my_corpus, content_transformer(stripWhitespace)) ## remove excess white-space
+my_corpus = tm_map(my_corpus, content_transformer(removeWords), stopwords("SMART"))
+
+#my_corpus <- tm_map(my_corpus, stemDocument)
+DTM = DocumentTermMatrix(my_corpus)
+DTM = removeSparseTerms(DTM, 0.975)
+
+X = as.matrix(DTM)
+X = X/rowSums(X)
+X = idf.weight(X)
+```
+In order to create a model that takes into account all possible words, words that weren't in the training set but were in the test set were added to the training set, and vice versa. This way, all potential words were available for creating and testing the model.
+
+Test Set
+```{r}
+author_test=Sys.glob('~/MSBA/Summer/Predictive Models 2/STA380-master/data/ReutersC50/C50test/*')
+filelist = NULL
+labels2 = NULL
+
+for(author in author_test){
+  authorname=substring(author, first=20)
+  filestoadd= Sys.glob(paste0(author,'/*.txt'))
+  filelist=append(filelist, filestoadd)
+  labels2=append(labels2, rep(authorname, length(filestoadd)))
+}  
+
+alldocs = lapply(filelist, readerPlain)
+names(alldocs)=filelist
+
+mycorpus = Corpus(VectorSource(alldocs))
+names(mycorpus)=filelist
+
+mycorpus = tm_map(mycorpus, content_transformer(tolower)) # make everything lowercase
+mycorpus = tm_map(mycorpus, content_transformer(removeNumbers)) # remove numbers
+mycorpus = tm_map(mycorpus, content_transformer(removePunctuation)) # remove punctuation
+mycorpus = tm_map(mycorpus, content_transformer(stripWhitespace)) ## remove excess white-space
+mycorpus = tm_map(mycorpus, content_transformer(removeWords), stopwords("SMART"))
+
+DTM2=DocumentTermMatrix(mycorpus)
+DTM2=removeSparseTerms(DTM2,0.975)
+
+x2=as.matrix(DTM2)
+
+x2=x2/rowSums(x2)
+x2=idf.weight(x2)
+
+words=colnames(X)
+words2=colnames(x2)
+
+W=words[!(words %in% words2)]
+W2=words2[!(words2 %in% words)]
+
+words_matrix=matrix(0,nrow=nrow(x2), ncol=length(W))
+colnames(words_matrix)=W
+
+words_matrix2=matrix(0,nrow=nrow(X), ncol=length(W2))
+colnames(words_matrix2)=W2
+
+train_matrix=cbind(X,words_matrix2)
+test_matrix=cbind(x2,words_matrix)
+```
+
+Naive Bayes Model
+```{r}
+test_matrix=as.data.frame(test_matrix)
+train_matrix=as.data.frame(train_matrix)
+
+nb = naiveBayes(x=train_matrix,y=as.factor(labels),laplace=1) 
+predNB=predict(nb,test_matrix)
+
+actual = rep(1:50,each=50)
+
+TestTable = table(predNB,actual)
+correct = 0
+for (i in seq(1,50)){
+  correct = correct + TestTable[i,i]
+}
+
+accuracy = correct/2500
+accuracy
+```
+The Naive Bayes model prediction accuracy is somewhat low, despite being much better than randomly guessing. A different model may have better predictive accuracy.
+
+Random Forest Model
+```{r}
+rand = randomForest(y=as.factor(labels), x=train_matrix,ntrees=100)
+pr = predict(rand, test_matrix, type = "response")
+
+TestTable2 = table(pr, actual)
+
+correct2 = 0
+for (i in seq(1,50)){
+  correct2 = correct2 + TestTable2[i,i]
+}
+
+accuracy2 = correct2/2500
+accuracy2
+```
+The random forest model was a good bit better at about 54%.
+
+Problem 3 - Association Rule Mining
+```{r}
+library(arules)
+library(arulesViz)
+library(datasets)
+groceries <- read.transactions(file = 'groceries.txt', format='basket', sep=',')
+summary(groceries)
+```
+
+Plot the top 20 most frequent items found in baskets.
+```{r}
+itemFrequencyPlot(groceries, topN=20, type='absolute')
+```
+
+Find all of the associations that have a support of at least 0.001 and a confidence of 0.8. A support of at least 0.001 means that we only want to create associations with items that are found in at least 0.1% of the transactions. Items that occur any less than this most likely can't form any valuable insights due to their low number of occurences. A confidence of 0.8 means that we only want associations that actually occur in the data of baskets 80% of the time. The lift displayed shows how much more likely a given item will occur (rhs) if a basket contains the given set of items (lhs).
+```{r}
+rules <- apriori(groceries, parameter = list(support = 0.001, confidence = 0.8, maxlen=4))
+options(digits=2)
+inspect(rules)
+```
+
+Here, I remove all of the associations found from the model that are redundant. That is, these associations actually display associations that have already been established and are therefore repetitive and unnecessary.
+```{r}
+subset.matrix <- is.subset(rules, rules)
+subset.matrix[lower.tri(subset.matrix, diag=T)] <- NA
+redundant <- colSums(subset.matrix, na.rm=T) >= 1
+rules.pruned <- rules[!redundant]
+rules<-rules.pruned
+```
+
+Here, I find the top five associations for one of the more popular items, rolls/buns, from the newly pruned list of associations. The top association for rolls/buns appears to be when a basket contains newspapers and spread cheese. This makes sense, as this appears to be a purchase of roll/buns in a breakfast/early day meal purchase. Another strong association if with beef, tropical fruit, whole milk, and yogurt. This appears to be a more rounded purchase, that makes sense mainly due to the beef.
+```{r}
+rules<-apriori(data=groceries, parameter=list(supp=0.001,conf = 0.08, minlen=3), 
+               appearance = list(default="lhs",rhs="rolls/buns"),
+               control = list(verbose=F))
+
+rules<-sort(rules, decreasing=TRUE,by="confidence")
+inspect(rules[1:5])
+```
+
+Next, I found the flipped association. That is, what purchases a basket with rolls/buns led to the most. However, the confidence and lifts from these associations are fairly low, because all of the associations are for other popular items, meaning that these other items in the basket aren't necessarily there because of the rolls/buns, but rather just because they are popular items.
+```{r}
+rules<-apriori(data=groceries, parameter=list(supp=0.001,conf = 0.15,minlen=2), 
+               appearance = list(default="rhs",lhs="rolls/buns"),
+               control = list(verbose=F))
+rules<-sort(rules, decreasing=TRUE,by="confidence")
+inspect(rules[1:5])
+```
+
